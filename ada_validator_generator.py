@@ -133,14 +133,10 @@ class AdaParser:
                 base_type = array_match.group(1)
                 bounds = array_match.group(2)
                 
-                # Special case: String(bounds) is not an array we need to loop over
-                if base_type == 'String':
-                    is_array = False
-                    type_name = f"String ({bounds})"
-                else:
-                    is_array = True
-                    array_bounds = bounds
-                    type_name = base_type
+                # All constrained types with bounds are arrays
+                is_array = True
+                array_bounds = bounds
+                type_name = base_type
             else:
                 type_name = type_spec
                 
@@ -149,11 +145,11 @@ class AdaParser:
                 # Check if the type name itself is a direct array type
                 if type_name in self.array_types:
                     is_array = True
-                # Check if this type is a subtype of an array type
+                # Check if this type is a subtype of an array type or String
                 elif type_name in self.subtypes:
                     base_subtype = self.subtypes[type_name]
-                    if base_subtype in self.array_types:
-                        # This is a subtype of an array type, so it should be treated as an array
+                    if base_subtype in self.array_types or base_subtype == 'String':
+                        # This is a subtype of an array type or String, so it should be treated as an array
                         is_array = True
             
             fields.append(AdaField(field_name, type_name, is_array, array_bounds))
@@ -183,10 +179,15 @@ class ValidationGenerator:
                 element_type = field.type_name
                 if field.type_name in self.parser.array_types:
                     element_type = self.parser.array_types[field.type_name]
+                elif field.type_name == 'String':
+                    # String arrays have Character elements
+                    element_type = 'Character'
                 elif field.type_name in self.parser.subtypes:
-                    # Check if this subtype is based on an array type
+                    # Check if this subtype resolves to String or an array type
                     base_subtype = self.parser.subtypes[field.type_name]
-                    if base_subtype in self.parser.array_types:
+                    if base_subtype == 'String':
+                        element_type = 'Character'
+                    elif base_subtype in self.parser.array_types:
                         element_type = self.parser.array_types[base_subtype]
                 
                 # Check if array element is a record type
