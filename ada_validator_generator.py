@@ -168,12 +168,15 @@ class ValidationGenerator:
         """Recursively generate validation for a record and its nested arrays."""
         indent = "   " * indent_level
         
+        # Map indent levels to loop variable names: 1->i, 2->j, 3->k, etc.
+        loop_var_names = ['i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
+        loop_var = loop_var_names[min(indent_level - 1, len(loop_var_names) - 1)]
+        
         for field in record.fields:
             field_path = f"{base_path}.{field.name}"
             
             if field.is_array:
                 # Handle nested arrays
-                loop_var = f"i_{field.name}_{indent_level}"
                 output_lines.append(f"{indent}for {loop_var} in {field_path}'Range loop")
                 
                 # Resolve element type - handle both direct array types and subtypes of array types
