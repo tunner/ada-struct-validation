@@ -54,6 +54,14 @@ package Input_Record is
    subtype Byte is Interfaces.Unsigned_8;
    type Byte_Array is array (Positive range <>) of Byte;
 
+   -- Additional primitive subtype for anonymous array usage
+   subtype Halfword is Interfaces.Unsigned_16;
+
+   -- Base array type for halfwords and constrained subtypes
+   type Halfword_Array is array (Positive range <>) of Halfword;
+   subtype Packet_Words_16 is Halfword_Array (1 .. 16);
+   subtype Byte_8          is Byte_Array     (1 .. 8);
+
    -- Sensor-level record
    type Sensor_Data is record
       ID          : Integer;
@@ -64,7 +72,7 @@ package Input_Record is
       Calibration : Calibration;
       Samples     : Sample_Array (1 .. 16);
       History     : Maintenance_Log (1 .. 3);
-      Raw_Bytes   : Byte_Array (1 .. 8); -- New byte array field
+      Raw_Bytes   : Byte_8;  -- fixed-length subtype of Byte_Array
    end record;
 
    type Sensor_Array is array (Positive range <>) of Sensor_Data;
@@ -104,6 +112,7 @@ package Input_Record is
       Power      : Power_Info;
       Sensors    : Sensor_Array  (1 .. 6);
       Channels   : Channel_Array (1 .. 4);
+      Packet_Words : Packet_Words_16;  -- constrained subtype; range lives in subtype
       Network    : Network_Config;
       Error_Code : Integer;
    end record;

@@ -143,6 +143,13 @@ class AdaParser:
                     type_name = base_type
             else:
                 type_name = type_spec
+                
+            # After initial parsing, check if this type is a subtype of an array type
+            if not is_array and type_name in self.subtypes:
+                base_subtype = self.subtypes[type_name]
+                if base_subtype in self.array_types:
+                    # This is a subtype of an array type, so it should be treated as an array
+                    is_array = True
             
             fields.append(AdaField(field_name, type_name, is_array, array_bounds))
         
@@ -167,10 +174,15 @@ class ValidationGenerator:
                 loop_var = f"i_{field.name}_{indent_level}"
                 output_lines.append(f"{indent}for {loop_var} in {field_path}'Range loop")
                 
-                # Resolve element type
+                # Resolve element type - handle both direct array types and subtypes of array types
                 element_type = field.type_name
                 if field.type_name in self.parser.array_types:
                     element_type = self.parser.array_types[field.type_name]
+                elif field.type_name in self.parser.subtypes:
+                    # Check if this subtype is based on an array type
+                    base_subtype = self.parser.subtypes[field.type_name]
+                    if base_subtype in self.parser.array_types:
+                        element_type = self.parser.array_types[base_subtype]
                 
                 # Check if array element is a record type
                 if element_type in self.parser.types:
