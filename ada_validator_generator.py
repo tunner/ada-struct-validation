@@ -39,6 +39,7 @@ class AdaParser:
         self.types: Dict[str, AdaRecord] = {}
         self.enums: List[str] = []
         self.array_types: Dict[str, str] = {}  # Maps array type names to their element types
+        self.subtypes: Dict[str, str] = {}     # Maps subtype names to their base types
         
     def parse_file(self, file_path: str) -> None:
         """Parse an Ada specification file."""
@@ -78,6 +79,16 @@ class AdaParser:
         for match in re.finditer(enum_pattern, content, re.IGNORECASE):
             self.enums.append(match.group(1))
         
+        # Find subtype definitions
+        subtype_pattern = r'subtype\s+(\w+)\s+is\s+([^;]+)\s*;'
+        for match in re.finditer(subtype_pattern, content, re.IGNORECASE):
+            subtype_name = match.group(1)
+            base_type = match.group(2).strip()
+            # Extract base type name (handle constraints like "String (1 .. 32)")
+            base_match = re.match(r'(\w+)', base_type)
+            if base_match:
+                self.subtypes[subtype_name] = base_match.group(1)
+
         # Find array types
         array_pattern = r'type\s+(\w+)\s+is\s+array\s*\([^)]+\)\s+of\s+(\w+)\s*;'
         for match in re.finditer(array_pattern, content, re.IGNORECASE):
@@ -144,6 +155,44 @@ class ValidationGenerator:
     def __init__(self, parser: AdaParser):
         self.parser = parser
     
+    def _generate_record_validation(self, record: AdaRecord, base_path: str, output_lines: List[str], indent_level: int = 1) -> None:
+        """Recursively generate validation for a record and its nested arrays."""
+        indent = "   " * indent_level
+        
+        for field in record.fields:
+            field_path = f"{base_path}.{field.name}"
+            
+            if field.is_array:
+                # Handle nested arrays
+                loop_var = f"i_{field.name}_{indent_level}"
+                output_lines.append(f"{indent}for {loop_var} in {field_path}'Range loop")
+                
+                # Resolve element type
+                element_type = field.type_name
+                if field.type_name in self.parser.array_types:
+                    element_type = self.parser.array_types[field.type_name]
+                
+                # Check if array element is a record type
+                if element_type in self.parser.types:
+                    # Recursively generate validation for nested record
+                    nested_record = self.parser.types[element_type]
+                    self._generate_record_validation(nested_record, f"{field_path}({loop_var})", output_lines, indent_level + 1)
+                else:
+                    # Simple type in array
+                    output_lines.append(f"{indent}   Valid := Valid AND {field_path}({loop_var})'Valid;")
+                
+                output_lines.append(f"{indent}end loop;")
+                output_lines.append("")
+            else:
+                # Simple field - check if it's a nested record
+                if field.type_name in self.parser.types:
+                    # Nested record - recursively validate its fields
+                    nested_record = self.parser.types[field.type_name]
+                    self._generate_record_validation(nested_record, field_path, output_lines, indent_level)
+                else:
+                    # Simple field
+                    output_lines.append(f"{indent}Valid := Valid AND {field_path}'Valid;")
+
     def generate_validation_function(self, type_name: str) -> str:
         """Generate a validation function for the given type."""
         if type_name not in self.parser.types:
@@ -155,64 +204,15 @@ class ValidationGenerator:
         function_code = f"function Is_Valid (Input : {type_name}) return Boolean is\n"
         function_code += "   Valid : Boolean;\n"
         function_code += "begin\n"
+        function_code += "   Valid := True;\n\n"
         
-        # Generate validation logic
-        validation_parts = []
-        loop_code = []
+        # Use recursive validation generation
+        all_code = []
+        self._generate_record_validation(record, "Input", all_code, 1)
         
-        for field in record.fields:
-            field_path = f"Input.{field.name}"
-            
-            if field.is_array:
-                # Handle array fields - need a loop
-                loop_var = f"i_{field.name}"
-                loop_code.append(f"   for {loop_var} in {field_path}'Range loop")
-                
-                # Resolve the actual element type if it's an array type alias
-                element_type = field.type_name
-                if field.type_name in self.parser.array_types:
-                    element_type = self.parser.array_types[field.type_name]
-                
-                # Check if array element is a record type
-                if element_type in self.parser.types:
-                    # Generate validation for nested record fields
-                    nested_record = self.parser.types[element_type]
-                    for nested_field in nested_record.fields:
-                        nested_path = f"{field_path}({loop_var}).{nested_field.name}"
-                        loop_code.append(f"      Valid := Valid AND {nested_path}'Valid;")
-                else:
-                    # Simple type in array
-                    loop_code.append(f"      Valid := Valid AND {field_path}({loop_var})'Valid;")
-                
-                loop_code.append("   end loop;")
-                loop_code.append("")
-            else:
-                # Handle simple fields
-                if field.type_name in self.parser.types:
-                    # Nested record - generate validation for all its fields
-                    nested_record = self.parser.types[field.type_name]
-                    for nested_field in nested_record.fields:
-                        nested_path = f"{field_path}.{nested_field.name}"
-                        validation_parts.append(f"{nested_path}'Valid")
-                else:
-                    # Simple type (but don't validate String as array here)
-                    if field.type_name.startswith('String'):
-                        # String field - validate the whole string, not character by character
-                        validation_parts.append(f"{field_path}'Valid")
-                    else:
-                        validation_parts.append(f"{field_path}'Valid")
-        
-        # Build the main validation expression
-        if validation_parts:
-            and_separator = ' AND\n           '
-            function_code += f"   Valid := {and_separator.join(validation_parts)};\n"
-        else:
-            function_code += "   Valid := True;\n"
-        
-        # Add loop code for arrays
-        if loop_code:
-            function_code += "\n"
-            function_code += "\n".join(loop_code)
+        # Join all the generated code
+        if all_code:
+            function_code += "\n".join(all_code)
         
         function_code += "\n   return Valid;\n"
         function_code += f"end Is_Valid;\n"
