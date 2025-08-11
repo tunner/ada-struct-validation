@@ -11,6 +11,7 @@ License: MIT
 
 import re
 import sys
+import argparse
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from pathlib import Path
@@ -211,7 +212,7 @@ class ValidationGenerator:
                     # Simple field
                     output_lines.append(f"{indent}Valid := Valid AND {field_path}'Valid;")
 
-    def generate_validation_function(self, type_name: str) -> str:
+    def generate_validation_function(self, type_name: str, input_var_name: str = "Input") -> str:
         """Generate a validation function for the given type."""
         if type_name not in self.parser.types:
             raise ValueError(f"Type '{type_name}' not found in parsed types")
@@ -219,14 +220,14 @@ class ValidationGenerator:
         record = self.parser.types[type_name]
         
         # Generate function signature
-        function_code = f"function Is_Valid (Input : {type_name}) return Boolean is\n"
+        function_code = f"function Is_Valid ({input_var_name} : {type_name}) return Boolean is\n"
         function_code += "   Valid : Boolean;\n"
         function_code += "begin\n"
         function_code += "   Valid := True;\n\n"
         
         # Use recursive validation generation
         all_code = []
-        self._generate_record_validation(record, "Input", all_code, 1)
+        self._generate_record_validation(record, input_var_name, all_code, 1)
         
         # Join all the generated code
         if all_code:
@@ -237,9 +238,9 @@ class ValidationGenerator:
         
         return function_code
     
-    def generate_adb_file(self, type_name: str, package_name: str) -> str:
+    def generate_adb_file(self, type_name: str, package_name: str, input_var_name: str = "Input") -> str:
         """Generate a complete .adb file with the validation function."""
-        function_body = self.generate_validation_function(type_name)
+        function_body = self.generate_validation_function(type_name, input_var_name)
         
         adb_content = f"-- Generated validation function for {type_name}\n"
         adb_content += f"-- This file contains a validation function template\n\n"
@@ -251,40 +252,57 @@ class ValidationGenerator:
 
 def main():
     """Main entry point for the tool."""
-    if len(sys.argv) < 2 or len(sys.argv) > 3:
-        print("Usage: python ada_validator_generator.py <ada_spec_file> [type_name]")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description="Generate Ada validation functions for record types",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python ada_validator_generator.py input_record.ads
+  python ada_validator_generator.py input_record.ads Device
+  python ada_validator_generator.py input_record.ads Device --input Device_A
+        """
+    )
     
-    ada_file = sys.argv[1]
-    specified_type = sys.argv[2] if len(sys.argv) == 3 else None
+    parser.add_argument('ada_file', 
+                       help='Ada specification file (.ads) to parse')
+    parser.add_argument('type_name', nargs='?', 
+                       help='Name of the record type to validate (optional, will prompt if not provided)')
+    parser.add_argument('--input', '-i', dest='input_var_name', default='Input',
+                       help='Name for the input parameter variable (default: Input)')
+    
+    args = parser.parse_args()
+    
+    ada_file = args.ada_file
+    specified_type = args.type_name
+    input_var_name = args.input_var_name
     
     if not Path(ada_file).exists():
         print(f"Error: File '{ada_file}' not found")
         sys.exit(1)
     
     # Parse the Ada file
-    parser = AdaParser()
+    ada_parser = AdaParser()
     try:
-        parser.parse_file(ada_file)
+        ada_parser.parse_file(ada_file)
     except Exception as e:
         print(f"Error parsing Ada file: {e}")
         sys.exit(1)
     
     # Show available types
-    if not parser.types:
+    if not ada_parser.types:
         print("No record types found in the file")
         sys.exit(1)
     
     print("Found the following record types:")
-    for i, type_name in enumerate(parser.types.keys(), 1):
+    for i, type_name in enumerate(ada_parser.types.keys(), 1):
         print(f"  {i}. {type_name}")
     
     # Select type to validate
     if specified_type:
-        if specified_type not in parser.types:
+        if specified_type not in ada_parser.types:
             print(f"Error: Type '{specified_type}' not found in the file")
             print("Available types:")
-            for type_name in parser.types.keys():
+            for type_name in ada_parser.types.keys():
                 print(f"  - {type_name}")
             sys.exit(1)
         choice = specified_type
@@ -293,7 +311,7 @@ def main():
         while True:
             try:
                 choice = input("\nEnter the name of the type to validate: ").strip()
-                if choice in parser.types:
+                if choice in ada_parser.types:
                     break
                 print(f"Type '{choice}' not found. Please choose from the list above.")
             except KeyboardInterrupt:
@@ -301,12 +319,12 @@ def main():
                 sys.exit(0)
     
     # Generate validation function
-    generator = ValidationGenerator(parser)
+    generator = ValidationGenerator(ada_parser)
     
     try:
         # Extract package name from file
         package_name = Path(ada_file).stem
-        adb_content = generator.generate_adb_file(choice, package_name)
+        adb_content = generator.generate_adb_file(choice, package_name, input_var_name)
         
         # Write to output file
         output_file = f"{choice.lower()}_validation.adb"
