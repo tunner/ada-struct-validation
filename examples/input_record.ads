@@ -62,6 +62,13 @@ package Input_Record is
    subtype Packet_Words_16 is Halfword_Array (1 .. 16);
    subtype Byte_8          is Byte_Array     (1 .. 8);
 
+   -- Extra record type for fixed-size array usage
+   type Extra_Info is record
+      Code  : Integer;
+      Value : Float;
+   end record;
+   type Extra_Info_Array_16 is array (Positive range 1 .. 16) of Extra_Info;
+
    -- Sensor-level record
    type Sensor_Data is record
       ID          : Integer;
@@ -73,6 +80,7 @@ package Input_Record is
       Samples     : Sample_Array (1 .. 16);
       History     : Maintenance_Log (1 .. 3);
       Raw_Bytes   : Byte_8;  -- fixed-length subtype of Byte_Array
+      Extra_Entries : Extra_Info_Array_16;
    end record;
 
    type Sensor_Array is array (Positive range <>) of Sensor_Data;

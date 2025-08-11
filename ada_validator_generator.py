@@ -144,12 +144,17 @@ class AdaParser:
             else:
                 type_name = type_spec
                 
-            # After initial parsing, check if this type is a subtype of an array type
-            if not is_array and type_name in self.subtypes:
-                base_subtype = self.subtypes[type_name]
-                if base_subtype in self.array_types:
-                    # This is a subtype of an array type, so it should be treated as an array
+            # After initial parsing, check if this is an array type
+            if not is_array:
+                # Check if the type name itself is a direct array type
+                if type_name in self.array_types:
                     is_array = True
+                # Check if this type is a subtype of an array type
+                elif type_name in self.subtypes:
+                    base_subtype = self.subtypes[type_name]
+                    if base_subtype in self.array_types:
+                        # This is a subtype of an array type, so it should be treated as an array
+                        is_array = True
             
             fields.append(AdaField(field_name, type_name, is_array, array_bounds))
         
